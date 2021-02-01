@@ -21,7 +21,7 @@ class OptimizeMax:
         self.budget: int = budget
 
     def spend_bounds(self, dimension: str) -> Tuple[float, float]:
-        median_spend = self.data[dimension]["median_spend"]
+        median_spend = getattr(self.data[dimension], "median_spend")
         spend_lower_bound = 1 + (self.spend[dimension][0] / 100)
         spend_upper_bound = 1 + (self.spend[dimension][1] / 100)
         return (spend_lower_bound * median_spend, spend_upper_bound * median_spend)
@@ -40,12 +40,14 @@ class OptimizeMax:
         model.x = Var(
             D,
             domain=NonNegativeReals,
-            initialize=lambda model, x: data[x]["median_spend"],
+            initialize=lambda model, x: getattr(data[x], "median_spend"),
             bounds=lambda model, x: self.spend_bounds(x),
         )
         model.obj = Objective(
             expr=sum(
-                data[d]["coef"] * log(model.x[d]) + data[d]["intercept"] for d in D
+                getattr(data[d], "coef") * log(model.x[d])
+                + getattr(data[d], "intercept")
+                for d in D
             ),
             sense=maximize,
         )

@@ -3,6 +3,7 @@
 from typing import List
 from itertools import product
 from datetime import datetime
+from os import environ
 import base64
 
 from budgeotto import Budgeotto, CurveOpts, OptimizeMax
@@ -17,6 +18,8 @@ import numpy as np
 
 # from numpy import where, mean, median
 from sklearn.metrics import r2_score
+
+environ["NEOS_EMAIL"] = "kade.killary@xmedia.com"
 
 st.set_option("deprecation.showfileUploaderEncoding", False)
 
@@ -79,12 +82,14 @@ def get_dimension_curves(
 def apply_log_curve(
     df: pd.DataFrame, selected_dimension: str, column_name: str, curves: dict
 ) -> pd.DataFrame:
-    st.text(curves)
     df[column_name] = df.apply(
         lambda row: CurveOpts.log_curve(
             row.spend,
-            curves[row[selected_dimension]]["intercept"],
-            curves[row[selected_dimension]]["coef"],
+            getattr(curves[row[selected_dimension]], "intercept"),
+            getattr(curves[row[selected_dimension]], "coef"),
+            # TODO: compatible with TypedDict
+            #  curves[row[selected_dimension]]["intercept"],
+            #  curves[row[selected_dimension]]["coef"],
         ),
         axis=1,
     )
@@ -281,11 +286,11 @@ def main():
                     "",
                     min_value=0,
                     max_value=10_000_000,
-                    value=int(curves[selected_value]["median_spend"]),
+                    value=int(getattr(curves[selected_value], "median_spend")),
                     step=1_000,
                 )
-                intercept = curves[selected_value]["intercept"]
-                coef = curves[selected_value]["coef"]
+                intercept = getattr(curves[selected_value], "intercept")
+                coef = getattr(curves[selected_value], "coef")
                 target = CurveOpts.log_curve(
                     spend,
                     intercept,
@@ -391,15 +396,17 @@ def main():
 
             for dimension in included_dimensions:
                 current_total_spend = int(
-                    curves[dimension]["median_spend"] * total_time
+                    getattr(curves[dimension], "median_spend") * total_time
                 )
-                curves[dimension]["median_spend"] = (
-                    int(
-                        st.sidebar.number_input(
-                            f"{dimension}", min_value=0, value=current_total_spend
+                curves[dimension]._replace(
+                    median_spend=(
+                        int(
+                            st.sidebar.number_input(
+                                f"{dimension}", min_value=0, value=current_total_spend
+                            )
                         )
+                        / total_time
                     )
-                    / total_time
                 )
                 dimension_spend_constr[dimension] = st.sidebar.slider(
                     f"{dimension.title()} - Variation",
@@ -428,8 +435,8 @@ def main():
                 result["predicted_target"] = result.apply(
                     lambda x: CurveOpts.log_curve(
                         x["optimized_spend"],
-                        curves[x[selected_dimension]]["intercept"],
-                        curves[x[selected_dimension]]["coef"],
+                        getattr(curves[x[selected_dimension]], "intercept"),
+                        getattr(curves[x[selected_dimension]], "coef"),
                     ),
                     axis=1,
                 )
