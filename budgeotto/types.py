@@ -1,20 +1,20 @@
-from typing import List
+from typing import TypedDict, List
 
 from numpy import float64
 
 
-class CurveAttrs:
+class CurveAttrs(TypedDict):
     coef: float64
     intercept: float64
     median_spend: float64
 
 
-class Curves:
+class Curves(TypedDict):
     variable: str
     data: CurveAttrs
 
 
-class SpendConstr:
+class SpendConstr(TypedDict):
     variable: str
     # [Lower, Upper] bounds
     spend_bounds: List[float]
