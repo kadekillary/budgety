@@ -79,6 +79,7 @@ def get_dimension_curves(
 def apply_log_curve(
     df: pd.DataFrame, selected_dimension: str, column_name: str, curves: dict
 ) -> pd.DataFrame:
+    print(curves)
     df[column_name] = df.apply(
         lambda row: CurveOpts.log_curve(
             row.spend,
