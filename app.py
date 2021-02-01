@@ -79,7 +79,7 @@ def get_dimension_curves(
 def apply_log_curve(
     df: pd.DataFrame, selected_dimension: str, column_name: str, curves: dict
 ) -> pd.DataFrame:
-    print(curves)
+    st.text(curves)
     df[column_name] = df.apply(
         lambda row: CurveOpts.log_curve(
             row.spend,
@@ -179,8 +179,6 @@ def main():
 
         # TODO: function -> cache it
         grouped_data = aggregate_data(data, time, selected_dimension)
-
-        print(grouped_data)
 
         if grouped_data.shape[0] > 1:
             pass
@@ -295,9 +293,6 @@ def main():
                 )
                 st.subheader(f"Prediction - {time.title()}")
                 st.success(f"{target:,.0f}")
-
-            print(f"Intercept: {curves[selected_value]['intercept']}")
-            print(f"Coef: {curves[selected_value]['coef']}")
 
             with col2:
                 filtered_data["predicted"] = filtered_data.apply(
