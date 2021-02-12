@@ -39,6 +39,9 @@ COLUMN_MAPPING = {
     "mta total completes": "target",
 }
 
+# TODO: Check - how using time -> month gets handled
+# TODO: Check - when CPA value < 0
+
 
 def get_time_from_columns(columns: List[str]) -> str:
     # Need to extract granularity in order to adjust optimization
@@ -57,8 +60,6 @@ def remove_primary_columns(columns: List[str], time: str) -> List[str]:
 def preprocess(file_path: str):
     # TODO: make this cleaner
     # maybe re-write to chain
-    # Skip first 6 rows -> due to Datorama format
-    # data = pd.read_csv(file_path, skiprows=6, low_memory=False)
     data = pd.read_csv(file_path, low_memory=False)
     data.columns = data.columns.str.lower()
     data = data.rename(columns=COLUMN_MAPPING)
@@ -85,11 +86,8 @@ def apply_log_curve(
     df[column_name] = df.apply(
         lambda row: CurveOpts.log_curve(
             row.spend,
-            getattr(curves[row[selected_dimension]], "intercept"),
-            getattr(curves[row[selected_dimension]], "coef"),
-            # TODO: compatible with TypedDict
-            #  curves[row[selected_dimension]]["intercept"],
-            #  curves[row[selected_dimension]]["coef"],
+            curves[row[selected_dimension]].intercept,
+            curves[row[selected_dimension]].coef,
         ),
         axis=1,
     )
@@ -151,8 +149,26 @@ def main():
     uploaded_file = st.sidebar.file_uploader("", type="csv")
 
     if uploaded_file is None:
-        # TODO: add explanation info
-        pass
+        st.title("Hello!")
+        st.subheader("Please double-check your input file:")
+        st.title("")
+        st.markdown(
+            """
+        * You have a **time**  column (Month, Day, or Week).
+
+        * You have at least one **dimension** to group against (e.g. Campaign Name, Keyword)
+
+        * You have a **spend** columm.
+
+        * You have a **target** column, which is expressed as a numerical value.
+
+        * Also, remove first 6 rows if input file comes from Datorama.
+        """
+        )
+        st.title("")
+        st.markdown(
+            "[Learn more best practices](https://docs.google.com/document/d/17z64AK5J4EkjULJNnpgb6w8g_eh9u6fICtN4TSKD7UY/edit?usp=sharing)"
+        )
     else:
         # To account for buffer reset
         # https://stackoverflow.com/questions/64347681/emptydataerror-no-columns-to-parse-from-file-about-streamlit
@@ -286,11 +302,11 @@ def main():
                     "",
                     min_value=0,
                     max_value=10_000_000,
-                    value=int(getattr(curves[selected_value], "median_spend")),
+                    value=int(curves[selected_value].median_spend),
                     step=1_000,
                 )
-                intercept = getattr(curves[selected_value], "intercept")
-                coef = getattr(curves[selected_value], "coef")
+                intercept = curves[selected_value].intercept
+                coef = curves[selected_value].coef
                 target = CurveOpts.log_curve(
                     spend,
                     intercept,
@@ -315,7 +331,6 @@ def main():
                 fig.add_trace(
                     go.Line(
                         x=filtered_data.spend,
-                        #  y=CurveOpts.log_curve(filtered_data.spend, intercept, coef),
                         y=filtered_data.predicted,
                         mode="lines",
                         name="Fit",
@@ -395,18 +410,14 @@ def main():
             st.sidebar.markdown("&nbsp;", unsafe_allow_html=True)
 
             for dimension in included_dimensions:
-                current_total_spend = int(
-                    getattr(curves[dimension], "median_spend") * total_time
-                )
-                curves[dimension]._replace(
-                    median_spend=(
-                        int(
-                            st.sidebar.number_input(
-                                f"{dimension}", min_value=0, value=current_total_spend
-                            )
+                current_total_spend = int(curves[dimension].median_spend * total_time)
+                curves[dimension].median_spend = (
+                    int(
+                        st.sidebar.number_input(
+                            f"{dimension}", min_value=0, value=current_total_spend
                         )
-                        / total_time
                     )
+                    / total_time
                 )
                 dimension_spend_constr[dimension] = st.sidebar.slider(
                     f"{dimension.title()} - Variation",
@@ -425,111 +436,132 @@ def main():
                 total_budget // total_time,
             )
 
-            run = run_slot.button("Run Optimization")
+            run = run_slot.button("Run")
             if run:
-                result = optimizer.run()
+                try:
+                    result = optimizer.run()
+                    # TODO: check that result was returned
+                    result.columns = [selected_dimension, "optimized_spend"]
+                    result["total_optimized_spend"] = (
+                        result["optimized_spend"] * total_time
+                    )
+                    result["predicted_target"] = result.apply(
+                        lambda x: CurveOpts.log_curve(
+                            x["optimized_spend"],
+                            curves[x[selected_dimension]].intercept,
+                            curves[x[selected_dimension]].coef,
+                        ),
+                        axis=1,
+                    )
 
-                # TODO: check that result was returned
-                result.columns = [selected_dimension, "optimized_spend"]
-                result["total_optimized_spend"] = result["optimized_spend"] * total_time
-                result["predicted_target"] = result.apply(
-                    lambda x: CurveOpts.log_curve(
-                        x["optimized_spend"],
-                        getattr(curves[x[selected_dimension]], "intercept"),
-                        getattr(curves[x[selected_dimension]], "coef"),
-                    ),
-                    axis=1,
-                )
+                    result = result.merge(
+                        aggregated_data[
+                            [selected_dimension, "current_spend", "current_target"]
+                        ]
+                    )
 
-                result = result.merge(
-                    aggregated_data[
-                        [selected_dimension, "current_spend", "current_target"]
+                    result = result.sort_values(by=[selected_dimension])
+
+                    spend = px.bar(
+                        result,
+                        x=selected_dimension,
+                        y=["current_spend", "optimized_spend"],
+                        barmode="group",
+                        template="plotly_white",
+                        labels={
+                            selected_dimension: "",
+                            "value": "",
+                            "variable": f"Spend - {time.title()}",
+                        },
+                    ).update_yaxes(tickprefix="$")
+                    st.plotly_chart(spend, use_container_width=True)
+
+                    target = px.bar(
+                        result,
+                        x=selected_dimension,
+                        y=["current_target", "predicted_target"],
+                        barmode="group",
+                        template="plotly_white",
+                        labels={
+                            selected_dimension: "",
+                            "value": "",
+                            "variable": f"Target - {time.title()}",
+                        },
+                    )
+                    st.plotly_chart(target, use_container_width=True)
+
+                    result["spend_pct"] = create_pct_column(
+                        result["current_spend"], result["optimized_spend"]
+                    )
+                    result["target_pct"] = create_pct_column(
+                        result["current_target"], result["predicted_target"]
+                    )
+                    result["target_pct"] = np.where(
+                        np.isinf(result["target_pct"]),
+                        result["predicted_target"].astype(int) * 100,
+                        result["target_pct"],
+                    )
+
+                    result = result[
+                        [
+                            selected_dimension,
+                            "optimized_spend",
+                            "spend_pct",
+                            "total_optimized_spend",
+                            "current_target",
+                            "predicted_target",
+                            "target_pct",
+                        ]
                     ]
-                )
 
-                result = result.sort_values(by=[selected_dimension])
+                    result["efficiency"] = np.where(
+                        np.isinf(
+                            result["optimized_spend"] / result["predicted_target"]
+                        ),
+                        result["predicted_target"],
+                        result["optimized_spend"] / result["predicted_target"],
+                    )
 
-                spend = px.bar(
-                    result,
-                    x=selected_dimension,
-                    y=["current_spend", "optimized_spend"],
-                    barmode="group",
-                    template="plotly_white",
-                    labels={
-                        selected_dimension: "",
-                        "value": "",
-                        "variable": f"Spend - {time.title()}",
-                    },
-                ).update_yaxes(tickprefix="$")
-                st.plotly_chart(spend, use_container_width=True)
+                    result = result.rename(
+                        columns={
+                            selected_dimension: f"{selected_dimension.title()}",
+                            "optimized_spend": "Recommended Spend",
+                            "spend_pct": "Spend Change %",
+                            "total_optimized_spend": "Total Recommended Spend",
+                            "current_target": "Average Response",
+                            "predicted_target": "Predicted Response",
+                            "target_pct": "Response Change %",
+                            "efficiency": "efficiency",
+                        }
+                    )
 
-                target = px.bar(
-                    result,
-                    x=selected_dimension,
-                    y=["current_target", "predicted_target"],
-                    barmode="group",
-                    template="plotly_white",
-                    labels={
-                        selected_dimension: "",
-                        "value": "",
-                        "variable": f"Target - {time.title()}",
-                    },
-                )
-                st.plotly_chart(target, use_container_width=True)
+                    result = result.sort_values(
+                        by=["Recommended Spend"], ascending=False
+                    )
 
-                result["spend_pct"] = create_pct_column(
-                    result["current_spend"], result["optimized_spend"]
-                )
-                result["target_pct"] = create_pct_column(
-                    result["current_target"], result["predicted_target"]
-                )
-                result["target_pct"] = np.where(
-                    np.isinf(result["target_pct"]),
-                    result["predicted_target"].astype(int) * 100,
-                    result["target_pct"],
-                )
+                    result.iloc[:, 1:] = result.iloc[:, 1:].astype(int)
 
-                result = result[
-                    [
-                        selected_dimension,
-                        #  "current_spend",
-                        "optimized_spend",
-                        "spend_pct",
-                        "total_optimized_spend",
-                        "current_target",
-                        "predicted_target",
-                        "target_pct",
-                    ]
-                ]
+                    st.markdown(get_table_download_link(result), unsafe_allow_html=True)
 
-                # TODO: usb specific for now
-                result["cpa"] = np.where(
-                    np.isinf(result["optimized_spend"] / result["predicted_target"]),
-                    result["predicted_target"],
-                    result["optimized_spend"] / result["predicted_target"],
-                )
+                    fig = ff.create_table(result)
+                    st.plotly_chart(fig, use_container_width=True)
+                except Exception:
+                    st.title("Whoops!")
+                    st.title("")
+                    st.subheader("The current spend and constraints are infeasible.")
+                    st.title("")
+                    st.markdown(
+                        """
+                        What to consider:
 
-                result = result.rename(
-                    columns={
-                        selected_dimension: f"{selected_dimension.title()}",
-                        "optimized_spend": "Recommended Spend",
-                        "spend_pct": "Spend Change %",
-                        "total_optimized_spend": "Total Recommended Spend",
-                        "current_target": "Average Response",
-                        "predicted_target": "Predicted Response",
-                        "target_pct": "Response Change %",
-                        "cpa": "CPA",
-                    }
-                )
+                        * Is your total spend across partners too low?
 
-                result = result.sort_values(by=["Recommended Spend"], ascending=False)
+                        * Is your total spend across partners too high?
 
-                result.iloc[:, 1:] = result.iloc[:, 1:].astype(int)
-
-                st.markdown(get_table_download_link(result), unsafe_allow_html=True)
-
-                fig = ff.create_table(result)
-                st.plotly_chart(fig, use_container_width=True)
+                        * Is your data heavily skewed in terms of spend/pacing?
+                        """
+                    )
+                    st.markdown("[Learn more debugging tips]()")
 
 
 main()

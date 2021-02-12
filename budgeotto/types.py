@@ -1,29 +1,21 @@
 from typing import List
-from collections import namedtuple
-
-from numpy import float64
+from dataclasses import dataclass
 
 
-CurveAttrs = namedtuple("CurveAttrs", ["coef", "intercept", "median_spend"])
-
-#  class CurveAttrs(TypedDict):
-#  coef: float64
-#  intercept: float64
-#  median_spend: float64
-
-
-Curves = namedtuple("Curves", ["variable", "data"])
+@dataclass
+class CurveAttrs:
+    coef: float
+    intercept: float
+    median_spend: float
 
 
-#  class Curves(TypedDict):
-#  variable: str
-#  data: CurveAttrs
+@dataclass
+class Curves:
+    variable: str
+    data: CurveAttrs
 
 
-SpendConstr = namedtuple("SpendConstr", ["variable", "spend_bounds"])
-
-
-#  class SpendConstr(TypedDict):
-#  variable: str
-#  # [Lower, Upper] bounds
-#  spend_bounds: List[float]
+@dataclass
+class SpendConstr:
+    variable: str
+    spend_bounds: List[float]

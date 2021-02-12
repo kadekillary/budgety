@@ -56,7 +56,10 @@ class OptimizeMax:
         # @TODO: potentially expose alternative solver options
         solution = solver.solve(model, opt="couenne")
         # Make sure optimal solution was found
-        if solution.solver.termination_condition == TerminationCondition.optimal:
+        print(solution.solver.termination_condition)
+        if solution.solver.termination_condition == TerminationCondition.infeasible:
+            raise Exception("Current constraints are infeasible!")
+        elif solution.solver.termination_condition == TerminationCondition.optimal:
             results = DataFrame.from_dict(
                 model.x.extract_values(), orient="index", columns=[str(model.x)]
             )
