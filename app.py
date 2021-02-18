@@ -37,6 +37,7 @@ COLUMN_MAPPING = {
     "cost": "spend",
     "booked accounts": "target",
     "mta total completes": "target",
+    "conversions": "target",
 }
 
 # TODO: Check - how using time -> month gets handled
@@ -104,8 +105,7 @@ def get_table_download_link(df: pd.DataFrame) -> str:
     b64 = base64.b64encode(
         csv.encode()
     ).decode()  # some strings <-> bytes conversions necessary here
-    # TODO: add time to results csv
-    href = f'<a href="data:file/csv;base64,{b64}" download="optimization-results.csv">Download Results</a>'
+    href = f'<a href="data:file/csv;base64,{b64}" download="optimization-results-{datetime.utcnow().isoformat()}.csv">Download Results</a>'
     return href
 
 
